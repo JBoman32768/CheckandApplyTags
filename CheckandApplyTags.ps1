@@ -1,47 +1,53 @@
 #Login to Azure
 Login-AzureRmAccount
 
+#Allow user to select subscription(s)
+$SelectedSubscriptions = 
+Get-AzureRmSubscription | 
+Select-Object -Property Name, Id | 
+Sort-Object -Property Name | 
+Out-GridView -PassThru -Title 'Select subscription (hold Ctrl for multiple)' 
+
 #List all Resources within the Subscription
-$Resources = Find-AzureRmResource
+$SelectedSubscriptions | % {
+    $subscription = $_
+    Write-Host "`n`nProcessing subcription $($subscription.Name)"
+    Select-AzureRmSubscription $subscription.Id
+    $Resources = Get-AzureRmResource
 
-#For each Resource apply the Tag of the Resource Group
-Foreach ($resource in $Resources)
-{
-    $Rgname = $resource.Resourcegroupname
+    #For each Resource apply the Tag of the Resource Group
+    Foreach ($resource in $Resources) {
+        $Rgname = $resource.Resourcegroupname
 
-    $resourceid = $resource.resourceId
-    $RGTags = (Get-AzureRmResourceGroup -Name $Rgname).Tags
+        $resourceid = $resource.resourceId
+        $RGTags = (Get-AzureRmResourceGroup -Name $Rgname).Tags
 
-    $resourcetags = $resource.Tags
-
-    If ($resourcetags -eq $null)
-        {
-            Write-Output "---------------------------------------------"
-            Write-Output "Applying the following Tags to $($resourceid)" $RGTags
-            Write-Output "---------------------------------------------"
-            $Settag = Set-AzureRmResource -ResourceId $resourceid -Tag $RGTagS -Force
+        #only make changes if the resource group has some tags to apply
+        if ($RGTags -ne $null) { 
+            $resourcetags = $resource.Tags
+            If ($resourcetags -eq $null) {
+                Write-Output "---------------------------------------------"
+                Write-Output "Applying the following Tags to $($resourceid)" $RGTags
+                Write-Output "---------------------------------------------"
+                $Settag = Set-AzureRmResource -ResourceId $resourceid -Tag $RGTags -Force
             
+            }
+            else {
+                $RGTagFinal = @{ }
+                $RGTagFinal = $resourcetags                  
+                Foreach ($resourcGroupTag in $RGTags.GetEnumerator()) {                
+                    If ($RGTagFinal.Keys -inotcontains $resourcGroupTag.Key) {                        
+                        Write-Output "------------------------------------------------"
+                        Write-Output "Add tag to resource" $resourcGroupTag
+                        Write-Output "------------------------------------------------"
+                        $RGTagFinal.Add($resourcGroupTag.Key, $resourcGroupTag.Value)
+                    }    
+                }
+                Write-Output "---------------------------------------------"
+                Write-Output "Applying the following Tags to $($resourceid)" $RGTagFinal
+                Write-Output "---------------------------------------------"
+                $Settag = Set-AzureRmResource -ResourceId $resourceid -Tag $RGTagFinal -Force
+            }   
         }
-    Else
-        {
-            $RGTagFinal = @{}
-            $RGTagFinal = $RGTags                  
-                    Foreach ($resourcetag in $resourcetags.GetEnumerator())
-                    {
-                
-                    If ($RGTags.Keys -inotcontains $resourcetag.Key)
-                        {                        
-                                Write-Output "------------------------------------------------"
-                                Write-Output "Keydoesn't exist in RG Tags adding to Hash Table" $resourcetag
-                                Write-Output "------------------------------------------------"
-                                $RGTagFinal.Add($resourcetag.Key,$resourcetag.Value)
-                        }    
-
-                    }
-            Write-Output "---------------------------------------------"
-            Write-Output "Applying the following Tags to $($resourceid)" $RGTagFinal
-            Write-Output "---------------------------------------------"
-            $Settag = Set-AzureRmResource -ResourceId $resourceid -Tag $RGTagFinal -Force
-        }   
+    }
 }
-
